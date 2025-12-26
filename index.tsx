@@ -26,7 +26,7 @@ import {
 } from './components/Icons';
 
 // Retro Defragmenter Animation
-const RetroDefragLoader = () => {
+const RetroDefragLoader = ({ label }: { label?: string }) => {
   const [blocks, setBlocks] = useState<number[]>(new Array(100).fill(0));
 
   useEffect(() => {
@@ -49,7 +49,7 @@ const RetroDefragLoader = () => {
           <div key={i} className={`defrag-block type-${type}`} />
         ))}
       </div>
-      <div className="defrag-label">SYNTHESIZING_CLUSTER_ALLOCATION...</div>
+      <div className="defrag-label">{label || 'SYNTHESIZING_CLUSTER_ALLOCATION...'}</div>
     </div>
   );
 };
@@ -207,7 +207,7 @@ const ComponentCard = React.memo(({
                 {isStreaming && (
                     <div className="generating-overlay">
                         {!variation.html ? (
-                          <RetroDefragLoader />
+                          <RetroDefragLoader label={variation.notes === '__RETRYING__' ? 'WAITING_FOR_QUOTA_RESET...' : undefined} />
                         ) : (
                           <pre className="code-stream-preview">{variation.html}</pre>
                         )}
@@ -253,10 +253,10 @@ function App() {
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSystemSynthesizing, setIsSystemSynthesizing] = useState<boolean>(false);
   const [placeholderIndex, setPlaceholderIndex] = useState(0);
   const [placeholders] = useState<string[]>(INITIAL_PLACEHOLDERS);
 
-  // Remix Modal state
   const [activeRemixVariation, setActiveRemixVariation] = useState<{ id: string, componentName: string, currentHtml: string } | null>(null);
   
   const [drawerState, setDrawerState] = useState<{
@@ -295,8 +295,8 @@ function App() {
     currentHtml: string = '',
     imagePart: any = null,
     retryCount = 0
-  ) => {
-      const MAX_RETRIES = 3;
+  ): Promise<void> => {
+      const MAX_RETRIES = 6;
       try {
           const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           const prompt = `
@@ -309,7 +309,7 @@ THEME: "${styleTheme}"
 TECHNICAL SPECIFICATION:
 ${designLanguage}
 
-${notes ? `**REFINEMENT REQUEST:**\n"${notes}"` : ''}
+${notes && notes !== '__RETRYING__' ? `**REFINEMENT REQUEST:**\n"${notes}"` : ''}
 ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${currentHtml}\n\`\`\`` : ''}
 
 **STRICT GENERATION RULES:**
@@ -322,7 +322,7 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
           `.trim();
 
           const responseStream = await ai.models.generateContentStream({
-              model: 'gemini-3-pro-preview',
+              model: 'gemini-3-flash-preview',
               contents: imagePart 
                   ? [{ parts: [imagePart, { text: prompt }], role: "user" }] 
                   : [{ parts: [{ text: prompt }], role: "user" }],
@@ -350,16 +350,30 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
               sess.id === sessionId ? {
                   ...sess,
                   variations: sess.variations.map(v => 
-                      v.id === variationId ? { ...v, html: finalHtml, status: 'complete', notes } : v
+                      v.id === variationId ? { ...v, html: finalHtml, status: 'complete', notes: notes === '__RETRYING__' ? '' : notes } : v
                   )
               } : sess
           ));
       } catch (e: any) {
           console.error("Design failure on component:", comp.name, e);
-          if (e.message?.includes('429') && retryCount < MAX_RETRIES) {
-              await sleep(Math.pow(2, retryCount) * 1000);
+          const errorText = e.message || '';
+          const isRateLimit = errorText.includes('429') || errorText.includes('RESOURCE_EXHAUSTED') || errorText.includes('quota') || e.status === 429;
+          
+          if (isRateLimit && retryCount < MAX_RETRIES) {
+              const waitTime = Math.pow(2, retryCount) * 10000;
+              console.warn(`Quota hit for ${comp.name}. Cooling down for ${waitTime}ms...`);
+              
+              setDesignSessions(prev => prev.map(sess => 
+                sess.id === sessionId ? {
+                    ...sess,
+                    variations: sess.variations.map(v => v.id === variationId ? { ...v, status: 'streaming', html: '', notes: '__RETRYING__' } : v)
+                } : sess
+              ));
+
+              await sleep(waitTime);
               return generateVariation(variationId, comp, styleTheme, designLanguage, sessionId, notes, currentHtml, imagePart, retryCount + 1);
           }
+          
           setDesignSessions(prev => prev.map(sess => 
               sess.id === sessionId ? {
                   ...sess,
@@ -368,6 +382,36 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
           ));
       }
   };
+
+  const handleDownloadComponent = useCallback((variation: ComponentVariation) => {
+    const component = CORE_COMPONENT_LIBRARY.find(c => c.id === variation.componentId);
+    const fileName = `usui-${component?.name.toLowerCase().replace(/ /g, '-') || 'component'}.html`;
+    const baseStyle = `
+        <style>
+            :root { color-scheme: dark; }
+            body { 
+                margin: 0; 
+                padding: 2rem; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center; 
+                min-height: 100vh; 
+                background: #000; 
+                color: #fff;
+                font-family: 'Inter', system-ui, sans-serif;
+            }
+            * { box-sizing: border-box; }
+        </style>
+    `;
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${component?.name || 'Component'}</title>${baseStyle}</head><body>${variation.html}</body></html>`;
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const handleApplyStyle = useCallback(async (manualPrompt?: string, manualSpec?: string) => {
     const styleSpice = manualPrompt || inputValue;
@@ -388,18 +432,8 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
         let designLanguage = manualSpec;
         let finalTheme = trimmedInput;
 
-        // Vision-to-Strategy Pass
         if (imageToUse) {
-            const visionPrompt = `
-                Analyze the visual aesthetic of this image. 
-                Distill it into a professional, ultra-concise technical Design Strategy.
-                Provide:
-                1. TOKENS: 3-5 keywords (e.g. "Industrial Glass Brutalism").
-                2. STRATEGY: A one-sentence technical manifesto. Maximum 20 words. No preamble.
-                Format the response exactly as:
-                TOKENS: [words]
-                STRATEGY: [manifesto]
-            `.trim();
+            const visionPrompt = `Analyze visual aesthetic. Provide TOKENS: [words] and STRATEGY: [manifesto] (20 words max).`;
             const visionResult = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
                 contents: { parts: [{inlineData: {data: imageToUse.split(',')[1], mimeType: 'image/png'}}, { text: visionPrompt }] }
@@ -407,20 +441,14 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
             const text = visionResult.text || "";
             const tokenMatch = text.match(/TOKENS:\s*(.*)/i);
             const specMatch = text.match(/STRATEGY:\s*([\s\S]*)/i);
-            
-            if (tokenMatch) {
-                finalTheme = tokenMatch[1].trim() + (trimmedInput ? ` // ${trimmedInput}` : "");
-            }
-            if (specMatch) {
-                designLanguage = specMatch[1].trim();
-            }
+            if (tokenMatch) finalTheme = tokenMatch[1].trim();
+            if (specMatch) designLanguage = specMatch[1].trim();
         }
 
         if (!designLanguage) {
-            const specPrompt = `Distill a highly concise one-sentence Technical Manifesto for: "${finalTheme}". No preamble.`;
             const specResponse = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
-                contents: imageToUse ? { parts: [{inlineData: {data: imageToUse.split(',')[1], mimeType: 'image/png'}}, { text: specPrompt }] } : specPrompt
+                contents: `Provide a one-sentence Technical Design Manifesto for: "${finalTheme}". No preamble.`
             });
             designLanguage = specResponse.text || "Standard System Manifesto";
         }
@@ -442,48 +470,21 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
             variations: placeholderVariations
         };
 
-        const nextIndex = designSessions.length;
         setDesignSessions(prev => [...prev, newSession]);
-        setCurrentSessionIndex(nextIndex);
-
+        setCurrentSessionIndex(designSessions.length);
     } catch (e) {
-        console.error("Studio System Crash", e);
+        console.error(e);
     } finally {
         setIsLoading(false);
     }
-  }, [inputValue, selectedImage, isLoading, designSessions]);
-
-  const handleUpdateStrategy = (newTheme: string) => {
-      setDesignSessions(prev => prev.map((s, idx) => 
-          idx === currentSessionIndex ? { ...s, styleTheme: newTheme } : s
-      ));
-  };
-
-  const handleUpdateLanguage = (newLanguage: string) => {
-      setDesignSessions(prev => prev.map((s, idx) => 
-          idx === currentSessionIndex ? { ...s, designLanguage: newLanguage } : s
-      ));
-  };
-
-  const handleImportComponent = (variationId: string, html: string) => {
-      setDesignSessions(prev => prev.map((sess, idx) => 
-          idx === currentSessionIndex ? {
-              ...sess,
-              variations: sess.variations.map(v => 
-                  v.id === variationId ? { ...v, html, status: 'complete' } : v
-              )
-          } : sess
-      ));
-  };
+  }, [inputValue, selectedImage, isLoading, designSessions.length]);
 
   const startReroll = useCallback(async (variationId: string, notes: string = '', currentHtml: string = '') => {
-    // Close modal immediately
     setActiveRemixVariation(null);
-
     const session = designSessions[currentSessionIndex];
     if (!session) return;
     const variation = session.variations.find(v => v.id === variationId);
-    if (!variation || variation.status === 'streaming') return;
+    if (!variation) return;
     const component = CORE_COMPONENT_LIBRARY.find(c => c.id === variation.componentId);
     if (!component) return;
 
@@ -497,59 +498,295 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
     await generateVariation(variationId, component, session.styleTheme, session.designLanguage, session.id, notes, currentHtml);
   }, [designSessions, currentSessionIndex]);
 
-  const handleRerollComponentRequest = useCallback((variationId: string) => {
-      const session = designSessions[currentSessionIndex];
-      const variation = session?.variations.find(v => v.id === variationId);
-      const component = CORE_COMPONENT_LIBRARY.find(c => c.id === variation?.componentId);
-      
-      if (variation && component) {
-          if (variation.status === 'pending') {
-              startReroll(variationId);
-          } else {
-              setActiveRemixVariation({ 
-                id: variationId, 
-                componentName: component.name,
-                currentHtml: variation.html 
-              });
-          }
-      }
-  }, [designSessions, currentSessionIndex, startReroll]);
-
-  const handleDownloadComponent = useCallback((variation: ComponentVariation) => {
-      const component = CORE_COMPONENT_LIBRARY.find(c => c.id === variation.componentId);
-      const fileName = `usui-${variation.styleName}-${component?.name || 'module'}.html`.toLowerCase().replace(/\s+/g, '-');
-      
-      const htmlContent = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${component?.name || 'USUI Module'}</title><style>:root { color-scheme: dark; } body { margin: 0; padding: 2rem; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: #000; color: #fff; font-family: 'Inter', system-ui, sans-serif; } * { box-sizing: border-box; }</style></head><body>${variation.html}</body></html>`;
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
-  }, []);
-
-  const handleExportSystemJSON = useCallback(() => {
+  const handleSynthesizeSystem = useCallback(async () => {
+      if (isSystemSynthesizing) return;
       const session = designSessions[currentSessionIndex];
       if (!session) return;
 
-      const systemData = {
-          version: "USUI_SYS_PROVENANCE_1.1",
-          metadata: {
-              theme_name: session.styleTheme,
-              theme_prompt: session.styleTheme,
-              generated_at: new Date(session.timestamp).toISOString(),
-              session_id: session.id
-          },
-          design_tokens: { specification: session.designLanguage },
-          variations: session.variations.map(v => ({ ...v, component_meta: CORE_COMPONENT_LIBRARY.find(c => c.id === v.componentId) }))
-      };
+      setIsSystemSynthesizing(true);
+      const pendingVariations = session.variations.filter(v => v.status === 'pending' || v.status === 'error');
+      
+      for (const variation of pendingVariations) {
+          const component = CORE_COMPONENT_LIBRARY.find(c => c.id === variation.componentId);
+          if (!component) continue;
 
-      const blob = new Blob([JSON.stringify(systemData, null, 2)], { type: 'application/json' });
+          setDesignSessions(prev => prev.map(sess => 
+              sess.id === session.id ? {
+                  ...sess,
+                  variations: sess.variations.map(v => v.id === variation.id ? { ...v, status: 'streaming', html: '' } : v)
+              } : sess
+          ));
+
+          await generateVariation(variation.id, component, session.styleTheme, session.designLanguage, session.id);
+          await sleep(3000); // 3s delay to respect RPM limits
+      }
+      setIsSystemSynthesizing(false);
+  }, [designSessions, currentSessionIndex, isSystemSynthesizing]);
+
+  const handleExportStyleGuide = useCallback(() => {
+      const session = designSessions[currentSessionIndex];
+      if (!session) return;
+      const themeName = session.styleTheme || "Style Guide";
+      const timestamp = new Date().toLocaleDateString();
+      const allHtml = session.variations.map(v => v.html).join(' ');
+      
+      const hexMatches = allHtml.match(/#[0-9a-fA-F]{3,6}/g) || [];
+      const rgbMatches = allHtml.match(/rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/g) || [];
+      const uniqueColors = Array.from(new Set([...hexMatches, ...rgbMatches])).slice(0, 15);
+
+      const styleGuideHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USUI — ${themeName.toUpperCase()} — SYSTEM SPEC</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #000000;
+            --text: #ffffff;
+            --muted: #666;
+            --border: #1a1a1a;
+            --accent: #fff;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0; padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 40px; }
+
+        /* Cover */
+        header.cover {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 80px;
+        }
+        .cover-meta { font-family: 'Roboto Mono', monospace; font-size: 0.7rem; letter-spacing: 0.35em; text-transform: uppercase; color: var(--muted); margin-bottom: 15px; }
+        .cover-title { font-size: clamp(3rem, 18vw, 15rem); font-weight: 900; margin: 0; letter-spacing: -0.07em; line-height: 0.8; text-transform: uppercase; }
+        .cover-footer { margin-top: 80px; display: flex; justify-content: space-between; align-items: flex-end; }
+        .theme-name { font-size: 2.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: -0.02em; }
+
+        /* Main Sectioning */
+        section { padding: 160px 0; border-bottom: 1px solid var(--border); }
+        .section-label { font-family: 'Roboto Mono', monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.4em; color: var(--muted); margin-bottom: 60px; display: block; }
+        
+        .manifesto-block { max-width: 1000px; font-size: 3.5rem; font-weight: 300; line-height: 1.05; letter-spacing: -0.03em; color: #eee; }
+
+        /* Foundations */
+        .token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; }
+        .token-card { border: 1px solid var(--border); background: #050505; }
+        .swatch { height: 180px; width: 100%; border-bottom: 1px solid var(--border); }
+        .token-info { padding: 24px; font-family: 'Roboto Mono'; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); }
+
+        /* Catalog */
+        .catalog-item { margin-bottom: 200px; }
+        .item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-top: 1px solid var(--border); padding-top: 40px; }
+        .item-title { font-size: clamp(2rem, 8vw, 6rem); font-weight: 900; text-transform: uppercase; margin: 0; line-height: 0.9; letter-spacing: -0.04em; }
+        .item-desc { color: var(--muted); font-size: 1.1rem; max-width: 500px; margin-top: 20px; font-weight: 400; line-height: 1.4; }
+        
+        .item-canvas {
+            background: #000;
+            border: 1px solid var(--border);
+            min-height: 600px;
+            display: flex;
+            position: relative;
+            background-image: radial-gradient(circle, #ffffff06 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        .canvas-iframe { width: 100%; height: 100%; min-height: 600px; border: none; display: block; }
+
+        .code-reveal {
+            margin-top: 40px;
+            background: #080808;
+            padding: 40px;
+            border: 1px solid #111;
+            position: relative;
+        }
+        .copy-button {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            font-family: 'Roboto Mono';
+            font-weight: 700;
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        pre { margin: 0; font-family: 'Roboto Mono', monospace; font-size: 0.85rem; color: #444; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+
+        footer { padding: 120px 0; text-align: center; font-family: 'Roboto Mono'; font-size: 0.7rem; color: #222; letter-spacing: 0.3em; border-top: 1px solid var(--border); }
+
+        @media (max-width: 1024px) {
+            .cover-title { font-size: 6rem; }
+            .manifesto-block { font-size: 2.2rem; }
+            .item-title { font-size: 3rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="cover">
+        <div class="container">
+            <div class="cover-meta">USUI DESIGN SYSTEM // MASTER_SPEC_V1.1</div>
+            <h1 class="cover-title">STYLE<br>GUIDE</h1>
+            <div class="cover-footer">
+                <div class="theme-name">${themeName}</div>
+                <div class="cover-meta">EXTRACTED: ${timestamp}</div>
+            </div>
+        </div>
+    </header>
+
+    <section id="01">
+        <div class="container">
+            <span class="section-label">SECTION 01 // STRATEGY</span>
+            <div class="manifesto-block">${session.designLanguage}</div>
+        </div>
+    </section>
+
+    <section id="02">
+        <div class="container">
+            <span class="section-label">SECTION 02 // FOUNDATIONS</span>
+            <div class="token-grid">
+                ${uniqueColors.map(c => `
+                    <div class="token-card">
+                        <div class="swatch" style="background: ${c};"></div>
+                        <div class="token-info">${c}</div>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div style="margin-top: 120px; border-top: 1px solid var(--border); padding-top: 80px;">
+                <span class="section-label">TYPOGRAPHY_CORE</span>
+                <div style="font-size: clamp(2rem, 10vw, 8rem); font-weight: 900; line-height: 0.9;">PRIMARY FACE: INTER (900/400)</div>
+                <div style="font-family: 'Roboto Mono'; font-size: 2rem; color: var(--muted); margin-top: 30px;">UTILITY: ROBOTO MONO</div>
+            </div>
+        </div>
+    </section>
+
+    <section id="03">
+        <div class="container">
+            <span class="section-label">SECTION 03 // CATALOG</span>
+            
+            ${session.variations.filter(v => v.status === 'complete').map(v => {
+                const comp = CORE_COMPONENT_LIBRARY.find(c => c.id === v.componentId);
+                const encapsulatedHtml = `
+                    <!DOCTYPE html>
+                    <html>
+                        <head>
+                            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+                            <style>
+                                :root { color-scheme: dark; }
+                                html, body { 
+                                    margin: 0; padding: 0; 
+                                    height: 100%; width: 100%;
+                                    display: flex; align-items: center; justify-content: center; 
+                                    background: transparent; color: #fff; 
+                                    font-family: 'Inter', sans-serif;
+                                    overflow: hidden;
+                                }
+                                * { box-sizing: border-box; }
+                            </style>
+                        </head>
+                        <body>
+                            <div id="wrapper" style="padding: 60px; width: 100%; display: flex; align-items: center; justify-content: center;">
+                                ${v.html}
+                            </div>
+                            <script>
+                                function sync() {
+                                    const h = document.getElementById('wrapper').scrollHeight;
+                                    window.parent.postMessage({ type: 'SYNC_H', h, id: '${v.id}' }, '*');
+                                }
+                                window.onload = () => { sync(); setTimeout(sync, 500); };
+                            </script>
+                        </body>
+                    </html>
+                `.trim();
+
+                return `
+                <div class="catalog-item" id="item-${v.id}">
+                    <div class="item-header">
+                        <div>
+                            <h2 class="item-title">${comp?.name}</h2>
+                            <p class="item-desc">${comp?.description}</p>
+                        </div>
+                        <div class="cover-meta">${comp?.id.toUpperCase()}</div>
+                    </div>
+                    <div class="item-canvas">
+                        <iframe 
+                            id="iframe-${v.id}"
+                            class="canvas-iframe" 
+                            srcdoc="${encapsulatedHtml.replace(/"/g, '&quot;')}"
+                            scrolling="no"
+                        ></iframe>
+                    </div>
+                    <div class="code-reveal">
+                        <button class="copy-button" onclick="copyCode(this, \`item-code-${v.id}\`)">COPY_MODULE</button>
+                        <pre id="item-code-${v.id}"><code>${v.html.replace(/</g, '&lt;')}</code></pre>
+                    </div>
+                </div>
+                `;
+            }).join('')}
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>END OF DOCUMENT // GENERATED BY USUI_ENGINE_V1.1 // SYSTEM_ID: ${session.id.toUpperCase()}</p>
+        </div>
+    </footer>
+
+    <script>
+        // Copy functionality
+        function copyCode(btn, id) {
+            const code = document.getElementById(id).innerText;
+            navigator.clipboard.writeText(code).then(() => {
+                const prev = btn.innerText;
+                btn.innerText = 'COPIED!';
+                setTimeout(() => btn.innerText = prev, 2000);
+            });
+        }
+
+        // Handle iframe height sync without infinite loops
+        window.addEventListener('message', (e) => {
+            if (e.data.type === 'SYNC_H') {
+                const frame = document.getElementById('iframe-' + e.data.id);
+                if (frame) {
+                    const finalH = Math.max(600, e.data.h);
+                    frame.style.height = finalH + 'px';
+                    frame.parentElement.style.minHeight = finalH + 'px';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+      `.trim();
+      
+      const blob = new Blob([styleGuideHtml], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `usui-system-${session.styleTheme.toLowerCase().replace(/ /g, '-')}.json`;
+      a.download = `usui-guide-${themeName.toLowerCase().replace(/ /g,'-')}.html`;
       a.click();
       URL.revokeObjectURL(url);
   }, [designSessions, currentSessionIndex]);
@@ -559,52 +796,28 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
 
   return (
     <>
-        <div className="top-nav">
-            <div className="brand" onClick={() => window.location.reload()}>USUI STUDIO</div>
-        </div>
-
-        <SideDrawer isOpen={drawerState.isOpen} onClose={() => setDrawerState(s => ({...s, isOpen: false}))} title={drawerState.title}>
-            <pre className="code-block"><code>{drawerState.data}</code></pre>
-        </SideDrawer>
-
-        <RemixModal 
-            isOpen={!!activeRemixVariation} 
-            onClose={() => setActiveRemixVariation(null)}
-            componentName={activeRemixVariation?.componentName || ''}
-            onConfirm={(notes) => activeRemixVariation && startReroll(activeRemixVariation.id, notes, activeRemixVariation.currentHtml)}
-        />
-
+        <div className="top-nav"><div className="brand" onClick={() => window.location.reload()}>USUI STUDIO</div></div>
+        <SideDrawer isOpen={drawerState.isOpen} onClose={() => setDrawerState(s => ({...s, isOpen: false}))} title={drawerState.title}><pre className="code-block"><code>{drawerState.data}</code></pre></SideDrawer>
+        <RemixModal isOpen={!!activeRemixVariation} onClose={() => setActiveRemixVariation(null)} componentName={activeRemixVariation?.componentName || ''} onConfirm={(notes) => activeRemixVariation && startReroll(activeRemixVariation.id, notes, activeRemixVariation.currentHtml)} />
         <div className="immersive-app">
             <DottedGlowBackground color="rgba(255, 255, 255, 0.02)" glowColor="rgba(255, 255, 255, 0.1)" />
-
             <div className="stage-container">
                 {!hasStarted ? (
                      <div className="empty-state">
                          <div className="empty-content">
-                             <h1 className="hero-text">
-                                <span className="hero-main">USUI</span>
-                                <span className="hero-sub">Design Studio</span>
-                             </h1>
+                             <h1 className="hero-text"><span className="hero-main">USUI</span><span className="hero-sub">Design Studio</span></h1>
                              <div className="landing-actions">
                                 <button className="main-btn" onClick={() => handleApplyStyle(placeholders[placeholderIndex])}>RANDOM SPICE</button>
                                 <button className="main-btn ghost" onClick={() => setDrawerState({isOpen: true, mode: 'config', title: 'SYSTEM CONFIG', data: JSON.stringify(CORE_COMPONENT_LIBRARY, null, 2)})}>CONFIG</button>
                              </div>
-
                              {userStyles.length > 0 && (
                                  <div className="presets-section">
                                      <div className="section-label">YOUR SYSTEMS</div>
                                      <div className="promoted-styles-grid">
                                          {userStyles.map(style => (
                                              <button key={style.id} className="style-preset-card user-preset" onClick={() => {
-                                                 const nextIndex = designSessions.length;
-                                                 setDesignSessions(prev => [...prev, {
-                                                    id: generateId(),
-                                                    styleTheme: style.name,
-                                                    designLanguage: style.designLanguage,
-                                                    timestamp: Date.now(),
-                                                    variations: style.variations
-                                                 }]);
-                                                 setCurrentSessionIndex(nextIndex);
+                                                 setDesignSessions(prev => [...prev, { id: generateId(), styleTheme: style.name, designLanguage: style.designLanguage, timestamp: Date.now(), variations: style.variations }]);
+                                                 setCurrentSessionIndex(designSessions.length);
                                              }}>
                                                  <span className="style-name">{style.name}</span>
                                                  <span className="style-delete" onClick={(e) => { e.stopPropagation(); setUserStyles(v => v.filter(s => s.id !== style.id)); }}><TrashIcon /></span>
@@ -622,25 +835,15 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                                 <div className="manifesto-header">
                                     <div className="manifesto-col-tokens">
                                         <div className="context-label">SYSTEM_TOKENS</div>
-                                        <input 
-                                            className="context-theme-input" 
-                                            value={currentSession.styleTheme} 
-                                            onChange={(e) => handleUpdateStrategy(e.target.value)}
-                                            placeholder="DNA TOKENS"
-                                        />
-                                        <div className="context-details">
-                                            <span className="mono">ID: {currentSession.id.toUpperCase()}</span>
-                                            <span className="mono">V1.0</span>
+                                        <div className="token-actions-row">
+                                            <input className="context-theme-input" value={currentSession.styleTheme} onChange={(e) => setDesignSessions(prev => prev.map((s, idx) => idx === currentSessionIndex ? { ...s, styleTheme: e.target.value } : s))} />
+                                            <button className="synth-system-btn" onClick={handleSynthesizeSystem} disabled={isSystemSynthesizing}>{isSystemSynthesizing ? <ThinkingIcon /> : <SparklesIcon />} SYNTHESIZE SYSTEM</button>
                                         </div>
+                                        <div className="context-details"><span className="mono">ID: {currentSession.id.toUpperCase()}</span><span className="mono">V1.1</span></div>
                                     </div>
                                     <div className="manifesto-col-strategy">
                                         <div className="context-label">DESIGN_STRATEGY</div>
-                                        <textarea 
-                                            className="context-strategy-textarea"
-                                            value={currentSession.designLanguage}
-                                            onChange={(e) => handleUpdateLanguage(e.target.value)}
-                                            placeholder="A distilled technical manifesto..."
-                                        />
+                                        <textarea className="context-strategy-textarea" value={currentSession.designLanguage} onChange={(e) => setDesignSessions(prev => prev.map((s, idx) => idx === currentSessionIndex ? { ...s, designLanguage: e.target.value } : s))} />
                                     </div>
                                 </div>
                             </div>
@@ -653,11 +856,14 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                                         key={variation.id} 
                                         variation={variation} 
                                         component={component}
-                                        isLoading={isLoading}
+                                        isLoading={isLoading || isSystemSynthesizing}
                                         onCodeClick={() => setDrawerState({isOpen: true, mode: 'code', title: component.name, data: variation.html})}
                                         onDownload={() => handleDownloadComponent(variation)}
-                                        onImport={(html) => handleImportComponent(variation.id, html)}
-                                        onReroll={() => handleRerollComponentRequest(variation.id)}
+                                        onImport={(html) => setDesignSessions(prev => prev.map((sess, idx) => idx === currentSessionIndex ? { ...sess, variations: sess.variations.map(v => v.id === variation.id ? { ...v, html, status: 'complete' } : v) } : sess))}
+                                        onReroll={() => {
+                                            if (variation.status === 'pending') startReroll(variation.id);
+                                            else setActiveRemixVariation({ id: variation.id, componentName: component.name, currentHtml: variation.html });
+                                        }}
                                     />
                                 );
                             })}
@@ -665,73 +871,35 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                     </div>
                 )}
             </div>
-
             <div className={`bottom-controls ${hasStarted ? 'visible' : ''}`}>
                  <div className="control-btns">
                     <button onClick={() => {
                         const session = designSessions[currentSessionIndex];
                         if (!session) return;
-                        const newStyle: UserStyle = {
-                            id: generateId(),
-                            name: session.styleTheme,
-                            prompt: session.styleTheme,
-                            designLanguage: session.designLanguage,
-                            variations: JSON.parse(JSON.stringify(session.variations)), 
-                            timestamp: Date.now()
-                        };
-                        setUserStyles(prev => [newStyle, ...prev]);
-                    }} title="Save session to Local Storage"><SparklesIcon /> PERSIST SESSION</button>
-                    <button onClick={handleExportSystemJSON} title="Export machine-readable JSON"><DownloadIcon /> EXPORT SYSTEM (.JSON)</button>
+                        setUserStyles(prev => [{ id: generateId(), name: session.styleTheme, prompt: session.styleTheme, designLanguage: session.designLanguage, variations: JSON.parse(JSON.stringify(session.variations)), timestamp: Date.now() }, ...prev]);
+                    }}><SparklesIcon /> PERSIST SESSION</button>
                     <button onClick={() => {
-                        const themeName = currentSession?.styleTheme || "Style Guide";
-                        const fullGuideHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>MASTER BOOK - ${themeName.toUpperCase()}</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet"><style>:root { --bg: #ffffff; --text: #000000; --border: #000000; --accent: #000000; } body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; padding: 0; line-height: 1.5; } .page { min-height: 100vh; padding: 80px; box-sizing: border-box; border-bottom: 2px solid var(--border); page-break-after: always; display: flex; flex-direction: column; } .container { max-width: 1200px; margin: 0 auto; width: 100%; flex: 1; } h1, h2, h3 { font-weight: 900; text-transform: uppercase; margin: 0; letter-spacing: -0.05em; } .mono { font-family: 'Roboto Mono', monospace; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; } .cover { justify-content: space-between; background: #000; color: #fff; } .cover h1 { font-size: 12rem; line-height: 0.8; } .cover-footer { display: flex; justify-content: space-between; align-items: flex-end; } .specs-content { font-family: 'Roboto Mono', monospace; white-space: pre-wrap; font-size: 0.9rem; padding: 40px; border: 2px solid #000; background: #f5f5f5; margin-top: 40px; } .comp-preview { flex: 1; background: #fff; border: 2px solid #000; display: flex; align-items: center; justify-content: center; min-height: 400px; margin: 40px 0; }</style></head><body><section class="page cover"><div class="container"><p class="mono">SYSTEM DESIGN MANIFESTO</p><h1>MASTER BOOK</h1></div><div class="container cover-footer"><div class="sys-id">USUI_${themeName.toUpperCase().replace(/ /g, '_')}</div><div class="mono">${new Date().toLocaleDateString()}</div></div></section><section class="page"><div class="container"><h2>DESIGN LANGUAGE</h2><div class="specs-content">${currentSession?.designLanguage || ''}</div></div></section>${(currentSession?.variations || []).map(v => `<section class="page"><div class="container"><h2>${CORE_COMPONENT_LIBRARY.find(c => c.id === v.componentId)?.name}</h2><div class="comp-preview">${v.html}</div><pre><code>${v.html.replace(/</g, '&lt;')}</code></pre></div></section>`).join('')}</body></html>`;
-                        const blob = new Blob([fullGuideHtml], { type: 'text/html' });
-                        const url = URL.createObjectURL(blob);
+                        const session = designSessions[currentSessionIndex];
+                        if (!session) return;
+                        const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' });
                         const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `usui-master-${themeName.toLowerCase().replace(/ /g,'-')}.html`;
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `usui-system-${session.styleTheme.toLowerCase().replace(/ /g, '-')}.json`;
                         a.click();
-                        URL.revokeObjectURL(url);
-                    }} className="export-btn" title="Export High-Fidelity Design Book"><DownloadIcon /> EXPORT MASTER BOOK</button>
+                    }}><DownloadIcon /> EXPORT SYSTEM (.JSON)</button>
+                    <button onClick={handleExportStyleGuide} className="export-btn"><DownloadIcon /> EXPORT STYLE GUIDE</button>
                  </div>
             </div>
-
             <div className="floating-input-container">
                 <div className={`input-wrapper ${isLoading ? 'loading' : ''}`}>
-                    {!inputValue && !isLoading && !selectedImage && (
-                        <div className="animated-placeholder">
-                            <span className="placeholder-text">INITIATE NEW SYSTEM: {placeholders[placeholderIndex]}</span>
-                            <span className="tab-hint">TAB</span>
-                        </div>
-                    )}
+                    {!inputValue && !isLoading && !selectedImage && <div className="animated-placeholder"><span className="placeholder-text">INITIATE NEW SYSTEM: {placeholders[placeholderIndex]}</span><span className="tab-hint">TAB</span></div>}
                     {selectedImage && <div className="img-chip"><img src={selectedImage} /><button onClick={() => setSelectedImage(null)}><XIcon /></button></div>}
                     {!isLoading ? (
-                        <>
-                            <input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleApplyStyle();
-                                if (e.key === 'Tab' && !inputValue) { e.preventDefault(); setInputValue(placeholders[placeholderIndex]); }
-                            }} onPaste={(e) => {
-                                const items = e.clipboardData.items;
-                                for (let i = 0; i < items.length; i++) {
-                                    if (items[i].type.indexOf('image') !== -1) {
-                                        const blob = items[i].getAsFile();
-                                        if (blob) {
-                                            const reader = new FileReader();
-                                            reader.onloadend = () => setSelectedImage(reader.result as string);
-                                            reader.readAsDataURL(blob);
-                                        }
-                                    }
-                                }
-                            }} />
-                            <button className="img-btn" onClick={() => fileInputRef.current?.click()} title="Upload Moodboard Image"><ImageIcon /></button>
-                            <input ref={fileInputRef} type="file" hidden onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) { const r = new FileReader(); r.onloadend = () => setSelectedImage(r.result as string); r.readAsDataURL(f); }
-                            }} />
-                        </>
-                    ) : (
-                        <div className="loading-state">SYNTHESIZING DESIGN SYSTEM... <ThinkingIcon /></div>
-                    )}
+                        <input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleApplyStyle();
+                            if (e.key === 'Tab' && !inputValue) { e.preventDefault(); setInputValue(placeholders[placeholderIndex]); }
+                        }} />
+                    ) : <div className="loading-state">SYNTHESIZING DESIGN SYSTEM... <ThinkingIcon /></div>}
                     <button className="go-btn" onClick={() => handleApplyStyle()} disabled={isLoading || !inputValue.trim() && !selectedImage}><ArrowUpIcon /></button>
                 </div>
             </div>
