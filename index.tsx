@@ -27,18 +27,19 @@ import {
 
 // Retro Defragmenter Animation
 const RetroDefragLoader = ({ label }: { label?: string }) => {
-  const [blocks, setBlocks] = useState<number[]>(new Array(100).fill(0));
+  // Increased to 400 blocks (20x20) for a finer presentation
+  const [blocks, setBlocks] = useState<number[]>(new Array(400).fill(0));
 
   useEffect(() => {
     const interval = setInterval(() => {
       setBlocks(prev => prev.map(() => {
         const rand = Math.random();
-        if (rand > 0.95) return 1; // Processed (Green)
-        if (rand > 0.90) return 2; // Reading (White)
-        if (rand > 0.85) return 3; // Fragmented (Red)
-        return 0; // Empty/Background
+        if (rand > 0.96) return 1; // High (White)
+        if (rand > 0.92) return 2; // Mid (Gray)
+        if (rand > 0.88) return 3; // Low (Dark Gray)
+        return 0; // Empty
       }));
-    }, 150);
+    }, 120);
     return () => clearInterval(interval);
   }, []);
 
@@ -49,7 +50,7 @@ const RetroDefragLoader = ({ label }: { label?: string }) => {
           <div key={i} className={`defrag-block type-${type}`} />
         ))}
       </div>
-      <div className="defrag-label">{label || 'SYNTHESIZING_CLUSTER_ALLOCATION...'}</div>
+      <div className="defrag-label">{label || 'REALLOCATING_VISUAL_CLUSTERS...'}</div>
     </div>
   );
 };
@@ -531,9 +532,11 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
       if (!session) return;
 
       setIsSystemSynthesizing(true);
-      const pendingVariations = session.variations.filter(v => v.status === 'pending' || v.status === 'error');
       
-      for (const variation of pendingVariations) {
+      // We re-synthesize ALL components to match the newly updated system strategy/tokens
+      const targetVariations = session.variations;
+      
+      for (const variation of targetVariations) {
           const component = CORE_COMPONENT_LIBRARY.find(c => c.id === variation.componentId);
           if (!component) continue;
 
@@ -545,7 +548,8 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
           ));
 
           await generateVariation(variation.id, component, session.styleTheme, session.designLanguage, session.id);
-          await sleep(3000); // 3s delay to respect RPM limits
+          // Sequential delay to manage rate limits and allow users to see the synthesis progress
+          await sleep(1000); 
       }
       setIsSystemSynthesizing(false);
   }, [designSessions, currentSessionIndex, isSystemSynthesizing]);
@@ -908,6 +912,10 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
         <div className="top-nav"><div className="brand" onClick={() => window.location.reload()}>USUI STUDIO</div></div>
         <SideDrawer isOpen={drawerState.isOpen} onClose={() => setDrawerState(s => ({...s, isOpen: false}))} title={drawerState.title}><pre className="code-block"><code>{drawerState.data}</code></pre></SideDrawer>
         <RemixModal isOpen={!!activeRemixVariation} onClose={() => setActiveRemixVariation(null)} componentName={activeRemixVariation?.componentName || ''} onConfirm={(notes) => activeRemixVariation && startReroll(activeRemixVariation.id, notes, activeRemixVariation.currentHtml)} />
+        
+        {/* Hidden Global Import Input - Always mounted so it's always accessible via ref */}
+        <input type="file" ref={globalImportRef} style={{display: 'none'}} accept=".html" onChange={handleImportStyleGuide} />
+
         <div className="immersive-app">
             <DottedGlowBackground color="rgba(255, 255, 255, 0.02)" glowColor="rgba(255, 255, 255, 0.1)" />
             <div className="stage-container">
@@ -918,7 +926,6 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                              <div className="landing-actions">
                                 <button className="main-btn" onClick={() => handleApplyStyle(placeholders[placeholderIndex])}>RANDOM SPICE</button>
                                 <button className="main-btn ghost" onClick={() => globalImportRef.current?.click()}>IMPORT STYLE GUIDE</button>
-                                <input type="file" ref={globalImportRef} style={{display: 'none'}} accept=".html" onChange={handleImportStyleGuide} />
                              </div>
                          </div>
                      </div>
