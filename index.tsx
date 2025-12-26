@@ -8,7 +8,7 @@ import { GoogleGenAI } from '@google/genai';
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 
-import { DesignComponent, ComponentVariation, DesignSession, UserStyle } from './types';
+import { DesignComponent, ComponentVariation, DesignSession } from './types';
 import { CORE_COMPONENT_LIBRARY, INITIAL_PLACEHOLDERS } from './constants';
 import { generateId, sleep } from './utils';
 
@@ -177,7 +177,7 @@ const ComponentCard = React.memo(({
                   <button 
                     className="action-btn" 
                     onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                    title="Import Prior Export"
+                    title="Replace with Local HTML"
                   >
                     <ArrowUpIcon />
                   </button>
@@ -245,10 +245,6 @@ const ComponentCard = React.memo(({
 function App() {
   const [designSessions, setDesignSessions] = useState<DesignSession[]>([]);
   const [currentSessionIndex, setCurrentSessionIndex] = useState<number>(-1);
-  const [userStyles, setUserStyles] = useState<UserStyle[]>(() => {
-    const saved = localStorage.getItem('usui_user_styles');
-    return saved ? JSON.parse(saved) : [];
-  });
   
   const [inputValue, setInputValue] = useState<string>('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -267,9 +263,9 @@ function App() {
   }>({ isOpen: false, mode: null, title: '', data: null });
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const globalImportRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { localStorage.setItem('usui_user_styles', JSON.stringify(userStyles)); }, [userStyles]);
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   useEffect(() => {
@@ -284,6 +280,37 @@ function App() {
       if (match) return match[1].trim();
       return raw.replace(/^(Here is|This is|Okay|Sure|Certainly)[\s\S]*?\n\n/i, '').trim();
   };
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of items) {
+      if (item.type.indexOf('image') !== -1) {
+        const blob = item.getAsFile();
+        if (blob) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const result = event.target?.result as string;
+            setSelectedImage(result);
+          };
+          reader.readAsDataURL(blob);
+        }
+      }
+    }
+  }, []);
+
+  const handleImageFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      setSelectedImage(result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }, []);
 
   const generateVariation = async (
     variationId: string, 
@@ -430,10 +457,10 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         let designLanguage = manualSpec;
-        let finalTheme = trimmedInput;
+        let finalTheme = trimmedInput || "Visual Synthesis";
 
         if (imageToUse) {
-            const visionPrompt = `Analyze visual aesthetic. Provide TOKENS: [words] and STRATEGY: [manifesto] (20 words max).`;
+            const visionPrompt = `Analyze visual aesthetic. Provide TOKENS: [words] and STRATEGY: [manifesto] (20 words max). Focus on high-end industrial design.`;
             const visionResult = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
                 contents: { parts: [{inlineData: {data: imageToUse.split(',')[1], mimeType: 'image/png'}}, { text: visionPrompt }] }
@@ -523,6 +550,38 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
       setIsSystemSynthesizing(false);
   }, [designSessions, currentSessionIndex, isSystemSynthesizing]);
 
+  const handleImportStyleGuide = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const content = event.target?.result as string;
+        try {
+            const match = content.match(/<script id=["']usui-session-data["'] type=["']application\/json["']>([\s\S]*?)<\/script>/i);
+            if (match && match[1]) {
+                const sessionStr = match[1].trim().replace(/\\\/script>/g, '/script>');
+                const restoredSession: DesignSession = JSON.parse(sessionStr);
+                
+                if (restoredSession && restoredSession.id && Array.isArray(restoredSession.variations)) {
+                    setDesignSessions(prev => {
+                        const next = [...prev, restoredSession];
+                        setCurrentSessionIndex(next.length - 1);
+                        return next;
+                    });
+                }
+            } else {
+                alert("Invalid USUI Style Guide file. No system data payload detected.");
+            }
+        } catch (error) {
+            console.error("Import failed", error);
+            alert("Synthesis error during import. File may be corrupted or incorrectly formatted.");
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; 
+  }, []);
+
   const handleExportStyleGuide = useCallback(() => {
       const session = designSessions[currentSessionIndex];
       if (!session) return;
@@ -546,7 +605,7 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
         :root {
             --bg: #000000;
             --text: #ffffff;
-            --muted: #666;
+            --muted: #444;
             --border: #1a1a1a;
             --accent: #fff;
         }
@@ -563,83 +622,116 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
             overflow-x: hidden;
         }
 
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 40px; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 0 25px; }
 
-        /* Cover */
         header.cover {
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
             justify-content: center;
-            border-bottom: 2px solid var(--border);
-            padding-bottom: 80px;
+            border-bottom: 3px solid var(--border);
+            padding: 100px 0;
         }
-        .cover-meta { font-family: 'Roboto Mono', monospace; font-size: 0.7rem; letter-spacing: 0.35em; text-transform: uppercase; color: var(--muted); margin-bottom: 15px; }
-        .cover-title { font-size: clamp(3rem, 18vw, 15rem); font-weight: 900; margin: 0; letter-spacing: -0.07em; line-height: 0.8; text-transform: uppercase; }
-        .cover-footer { margin-top: 80px; display: flex; justify-content: space-between; align-items: flex-end; }
-        .theme-name { font-size: 2.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: -0.02em; }
+        .cover-meta { font-family: 'Roboto Mono', monospace; font-size: 0.65rem; letter-spacing: 0.45em; text-transform: uppercase; color: var(--muted); margin-bottom: 15px; }
+        .cover-title { font-size: clamp(3rem, 15vw, 12rem); font-weight: 900; margin: 0; letter-spacing: -0.07em; line-height: 0.8; text-transform: uppercase; }
+        .cover-footer { margin-top: 100px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 40px; }
+        .theme-name { font-size: 2.5rem; font-weight: 700; text-transform: uppercase; letter-spacing: -0.03em; }
 
-        /* Main Sectioning */
-        section { padding: 160px 0; border-bottom: 1px solid var(--border); }
-        .section-label { font-family: 'Roboto Mono', monospace; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.4em; color: var(--muted); margin-bottom: 60px; display: block; }
+        section { padding: 100px 0; border-bottom: 1px solid var(--border); }
+        .section-label { font-family: 'Roboto Mono', monospace; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.6em; color: var(--muted); margin-bottom: 60px; display: block; }
         
-        .manifesto-block { max-width: 1000px; font-size: 3.5rem; font-weight: 300; line-height: 1.05; letter-spacing: -0.03em; color: #eee; }
+        .manifesto-block { max-width: 800px; font-size: 2.8rem; font-weight: 300; line-height: 1.15; letter-spacing: -0.03em; color: #eee; }
 
-        /* Foundations */
-        .token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; }
+        .token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 20px; }
         .token-card { border: 1px solid var(--border); background: #050505; }
-        .swatch { height: 180px; width: 100%; border-bottom: 1px solid var(--border); }
-        .token-info { padding: 24px; font-family: 'Roboto Mono'; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); }
+        .swatch { height: 120px; width: 100%; border-bottom: 1px solid var(--border); }
+        .token-info { padding: 15px; font-family: 'Roboto Mono'; font-size: 0.65rem; text-transform: uppercase; color: var(--muted); }
 
-        /* Catalog */
-        .catalog-item { margin-bottom: 200px; }
-        .item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px; border-top: 1px solid var(--border); padding-top: 40px; }
-        .item-title { font-size: clamp(2rem, 8vw, 6rem); font-weight: 900; text-transform: uppercase; margin: 0; line-height: 0.9; letter-spacing: -0.04em; }
-        .item-desc { color: var(--muted); font-size: 1.1rem; max-width: 500px; margin-top: 20px; font-weight: 400; line-height: 1.4; }
+        .catalog-item { margin-bottom: 140px; }
+        .item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 35px; border-top: 1px solid var(--border); padding-top: 40px; flex-wrap: wrap; gap: 15px; }
+        .item-title { font-size: clamp(1.8rem, 6vw, 4rem); font-weight: 900; text-transform: uppercase; margin: 0; line-height: 0.95; letter-spacing: -0.05em; }
+        .item-desc { color: var(--muted); font-size: 0.95rem; max-width: 500px; margin-top: 20px; line-height: 1.5; font-weight: 400; }
         
         .item-canvas {
             background: #000;
             border: 1px solid var(--border);
-            min-height: 600px;
+            min-height: 300px;
             display: flex;
+            flex-direction: column;
             position: relative;
             background-image: radial-gradient(circle, #ffffff06 1px, transparent 1px);
-            background-size: 40px 40px;
+            background-size: 25px 25px;
+            overflow: hidden;
         }
 
-        .canvas-iframe { width: 100%; height: 100%; min-height: 600px; border: none; display: block; }
+        .canvas-iframe { 
+            width: 100%; 
+            border: none; 
+            display: block; 
+            overflow: hidden;
+            pointer-events: auto;
+            height: 400px;
+            transition: height 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
 
-        .code-reveal {
-            margin-top: 40px;
+        .code-details {
+            margin-top: 30px;
             background: #080808;
-            padding: 40px;
             border: 1px solid #111;
+        }
+        .code-summary {
+            padding: 15px 25px;
+            font-family: 'Roboto Mono';
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            cursor: pointer;
+            color: #555;
+            list-style: none;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid transparent;
+        }
+        .code-details[open] .code-summary {
+            border-bottom-color: #111;
+            color: #888;
+        }
+        .code-summary::after {
+            content: '+ SHOW SOURCE';
+        }
+        .code-details[open] .code-summary::after {
+            content: '- HIDE SOURCE';
+        }
+
+        .code-wrapper {
+            padding: 30px;
             position: relative;
         }
         .copy-button {
             position: absolute;
-            top: 30px;
-            right: 30px;
+            top: 20px;
+            right: 20px;
             background: #fff;
             color: #000;
             border: none;
-            padding: 10px 20px;
+            padding: 6px 14px;
             font-family: 'Roboto Mono';
             font-weight: 700;
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             text-transform: uppercase;
             cursor: pointer;
             z-index: 10;
         }
 
-        pre { margin: 0; font-family: 'Roboto Mono', monospace; font-size: 0.85rem; color: #444; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+        pre { margin: 0; font-family: 'Roboto Mono', monospace; font-size: 0.75rem; color: #333; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
 
-        footer { padding: 120px 0; text-align: center; font-family: 'Roboto Mono'; font-size: 0.7rem; color: #222; letter-spacing: 0.3em; border-top: 1px solid var(--border); }
+        footer { padding: 100px 0; text-align: center; font-family: 'Roboto Mono'; font-size: 0.6rem; color: #222; letter-spacing: 0.4em; }
 
-        @media (max-width: 1024px) {
-            .cover-title { font-size: 6rem; }
-            .manifesto-block { font-size: 2.2rem; }
-            .item-title { font-size: 3rem; }
+        @media (max-width: 768px) {
+            .cover-title { font-size: 4rem; }
+            .manifesto-block { font-size: 1.6rem; }
+            .item-title { font-size: 2.2rem; }
         }
     </style>
 </head>
@@ -647,25 +739,25 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
 
     <header class="cover">
         <div class="container">
-            <div class="cover-meta">USUI DESIGN SYSTEM // MASTER_SPEC_V1.1</div>
+            <div class="cover-meta">USUI DESIGN SPEC // V1.3 // PORTABLE_SPEC_ACTIVE</div>
             <h1 class="cover-title">STYLE<br>GUIDE</h1>
             <div class="cover-footer">
                 <div class="theme-name">${themeName}</div>
-                <div class="cover-meta">EXTRACTED: ${timestamp}</div>
+                <div class="cover-meta">${timestamp}</div>
             </div>
         </div>
     </header>
 
-    <section id="01">
+    <section id="strategy">
         <div class="container">
-            <span class="section-label">SECTION 01 // STRATEGY</span>
+            <span class="section-label">01 // MANIFESTO</span>
             <div class="manifesto-block">${session.designLanguage}</div>
         </div>
     </section>
 
-    <section id="02">
+    <section id="foundations">
         <div class="container">
-            <span class="section-label">SECTION 02 // FOUNDATIONS</span>
+            <span class="section-label">02 // TOKENS</span>
             <div class="token-grid">
                 ${uniqueColors.map(c => `
                     <div class="token-card">
@@ -675,48 +767,62 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                 `).join('')}
             </div>
             
-            <div style="margin-top: 120px; border-top: 1px solid var(--border); padding-top: 80px;">
-                <span class="section-label">TYPOGRAPHY_CORE</span>
-                <div style="font-size: clamp(2rem, 10vw, 8rem); font-weight: 900; line-height: 0.9;">PRIMARY FACE: INTER (900/400)</div>
-                <div style="font-family: 'Roboto Mono'; font-size: 2rem; color: var(--muted); margin-top: 30px;">UTILITY: ROBOTO MONO</div>
+            <div style="margin-top: 80px; border-top: 1px solid var(--border); padding-top: 50px;">
+                <span class="section-label">TYPEFACE</span>
+                <div style="font-size: clamp(1.4rem, 6vw, 4.5rem); font-weight: 900; line-height: 1;">PRIMARY: INTER (VAR)</div>
+                <div style="font-family: 'Roboto Mono'; font-size: 1.2rem; color: var(--muted); margin-top: 15px;">MONO: ROBOTO MONO (STD)</div>
             </div>
         </div>
     </section>
 
-    <section id="03">
+    <section id="catalog">
         <div class="container">
-            <span class="section-label">SECTION 03 // CATALOG</span>
+            <span class="section-label">03 // CATALOG</span>
             
             ${session.variations.filter(v => v.status === 'complete').map(v => {
                 const comp = CORE_COMPONENT_LIBRARY.find(c => c.id === v.componentId);
                 const encapsulatedHtml = `
                     <!DOCTYPE html>
-                    <html>
+                    <html style="background:transparent; height: auto;">
                         <head>
                             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
                             <style>
                                 :root { color-scheme: dark; }
                                 html, body { 
                                     margin: 0; padding: 0; 
-                                    height: 100%; width: 100%;
-                                    display: flex; align-items: center; justify-content: center; 
                                     background: transparent; color: #fff; 
                                     font-family: 'Inter', sans-serif;
+                                    height: auto !important;
+                                    min-height: 0 !important;
                                     overflow: hidden;
+                                }
+                                #stage {
+                                    display: flex; align-items: center; justify-content: center;
+                                    padding: 80px;
+                                    box-sizing: border-box;
                                 }
                                 * { box-sizing: border-box; }
                             </style>
                         </head>
                         <body>
-                            <div id="wrapper" style="padding: 60px; width: 100%; display: flex; align-items: center; justify-content: center;">
+                            <div id="stage">
                                 ${v.html}
                             </div>
                             <script>
-                                function sync() {
-                                    const h = document.getElementById('wrapper').scrollHeight;
-                                    window.parent.postMessage({ type: 'SYNC_H', h, id: '${v.id}' }, '*');
-                                }
-                                window.onload = () => { sync(); setTimeout(sync, 500); };
+                                (function() {
+                                    let lastH = 0;
+                                    function sync() {
+                                        const h = document.getElementById('stage').getBoundingClientRect().height;
+                                        if (Math.abs(h - lastH) > 5) {
+                                            lastH = h;
+                                            window.parent.postMessage({ type: 'SPEC_SYNC', h: Math.ceil(h), id: '${v.id}' }, '*');
+                                        }
+                                    }
+                                    window.onload = sync;
+                                    window.onresize = sync;
+                                    setTimeout(sync, 150);
+                                    setTimeout(sync, 1000);
+                                })();
                             </script>
                         </body>
                     </html>
@@ -733,16 +839,19 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                     </div>
                     <div class="item-canvas">
                         <iframe 
-                            id="iframe-${v.id}"
+                            id="spec-frame-${v.id}"
                             class="canvas-iframe" 
                             srcdoc="${encapsulatedHtml.replace(/"/g, '&quot;')}"
                             scrolling="no"
                         ></iframe>
                     </div>
-                    <div class="code-reveal">
-                        <button class="copy-button" onclick="copyCode(this, \`item-code-${v.id}\`)">COPY_MODULE</button>
-                        <pre id="item-code-${v.id}"><code>${v.html.replace(/</g, '&lt;')}</code></pre>
-                    </div>
+                    <details class="code-details">
+                        <summary class="code-summary"></summary>
+                        <div class="code-wrapper">
+                            <button class="copy-button" onclick="copySnippet(this, \`code-txt-${v.id}\`)">COPY_BLOCK</button>
+                            <pre id="code-txt-${v.id}"><code>${v.html.replace(/</g, '&lt;')}</code></pre>
+                        </div>
+                    </details>
                 </div>
                 `;
             }).join('')}
@@ -751,13 +860,15 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
 
     <footer>
         <div class="container">
-            <p>END OF DOCUMENT // GENERATED BY USUI_ENGINE_V1.1 // SYSTEM_ID: ${session.id.toUpperCase()}</p>
+            <p>SPEC_END // PRODUCED BY USUI DESIGN ENGINE // SESSION: ${session.id.toUpperCase()}</p>
         </div>
     </footer>
 
+    <!-- EMBEDDED SYSTEM DATA FOR RE-IMPORT -->
+    <script id="usui-session-data" type="application/json">${JSON.stringify(session).replace(/<\/script>/g, '<\\/script>')}</script>
+
     <script>
-        // Copy functionality
-        function copyCode(btn, id) {
+        function copySnippet(btn, id) {
             const code = document.getElementById(id).innerText;
             navigator.clipboard.writeText(code).then(() => {
                 const prev = btn.innerText;
@@ -766,14 +877,12 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
             });
         }
 
-        // Handle iframe height sync without infinite loops
         window.addEventListener('message', (e) => {
-            if (e.data.type === 'SYNC_H') {
-                const frame = document.getElementById('iframe-' + e.data.id);
+            if (e.data.type === 'SPEC_SYNC') {
+                const frame = document.getElementById('spec-frame-' + e.data.id);
                 if (frame) {
-                    const finalH = Math.max(600, e.data.h);
-                    frame.style.height = finalH + 'px';
-                    frame.parentElement.style.minHeight = finalH + 'px';
+                    const h = Math.max(300, Math.min(2500, e.data.h));
+                    frame.style.height = h + 'px';
                 }
             }
         });
@@ -786,7 +895,7 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `usui-guide-${themeName.toLowerCase().replace(/ /g,'-')}.html`;
+      a.download = `usui-spec-${themeName.toLowerCase().replace(/ /g,'-')}.html`;
       a.click();
       URL.revokeObjectURL(url);
   }, [designSessions, currentSessionIndex]);
@@ -808,24 +917,9 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                              <h1 className="hero-text"><span className="hero-main">USUI</span><span className="hero-sub">Design Studio</span></h1>
                              <div className="landing-actions">
                                 <button className="main-btn" onClick={() => handleApplyStyle(placeholders[placeholderIndex])}>RANDOM SPICE</button>
-                                <button className="main-btn ghost" onClick={() => setDrawerState({isOpen: true, mode: 'config', title: 'SYSTEM CONFIG', data: JSON.stringify(CORE_COMPONENT_LIBRARY, null, 2)})}>CONFIG</button>
+                                <button className="main-btn ghost" onClick={() => globalImportRef.current?.click()}>IMPORT STYLE GUIDE</button>
+                                <input type="file" ref={globalImportRef} style={{display: 'none'}} accept=".html" onChange={handleImportStyleGuide} />
                              </div>
-                             {userStyles.length > 0 && (
-                                 <div className="presets-section">
-                                     <div className="section-label">YOUR SYSTEMS</div>
-                                     <div className="promoted-styles-grid">
-                                         {userStyles.map(style => (
-                                             <button key={style.id} className="style-preset-card user-preset" onClick={() => {
-                                                 setDesignSessions(prev => [...prev, { id: generateId(), styleTheme: style.name, designLanguage: style.designLanguage, timestamp: Date.now(), variations: style.variations }]);
-                                                 setCurrentSessionIndex(designSessions.length);
-                                             }}>
-                                                 <span className="style-name">{style.name}</span>
-                                                 <span className="style-delete" onClick={(e) => { e.stopPropagation(); setUserStyles(v => v.filter(s => s.id !== style.id)); }}><TrashIcon /></span>
-                                             </button>
-                                         ))}
-                                     </div>
-                                 </div>
-                             )}
                          </div>
                      </div>
                 ) : (
@@ -839,7 +933,7 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
                                             <input className="context-theme-input" value={currentSession.styleTheme} onChange={(e) => setDesignSessions(prev => prev.map((s, idx) => idx === currentSessionIndex ? { ...s, styleTheme: e.target.value } : s))} />
                                             <button className="synth-system-btn" onClick={handleSynthesizeSystem} disabled={isSystemSynthesizing}>{isSystemSynthesizing ? <ThinkingIcon /> : <SparklesIcon />} SYNTHESIZE SYSTEM</button>
                                         </div>
-                                        <div className="context-details"><span className="mono">ID: {currentSession.id.toUpperCase()}</span><span className="mono">V1.1</span></div>
+                                        <div className="context-details"><span className="mono">ID: {currentSession.id.toUpperCase()}</span><span className="mono">V1.3_SPEC</span></div>
                                     </div>
                                     <div className="manifesto-col-strategy">
                                         <div className="context-label">DESIGN_STRATEGY</div>
@@ -873,34 +967,45 @@ ${currentHtml ? `**CURRENT IMPLEMENTATION TO BE UPDATED:**\n\`\`\`html\n${curren
             </div>
             <div className={`bottom-controls ${hasStarted ? 'visible' : ''}`}>
                  <div className="control-btns">
-                    <button onClick={() => {
-                        const session = designSessions[currentSessionIndex];
-                        if (!session) return;
-                        setUserStyles(prev => [{ id: generateId(), name: session.styleTheme, prompt: session.styleTheme, designLanguage: session.designLanguage, variations: JSON.parse(JSON.stringify(session.variations)), timestamp: Date.now() }, ...prev]);
-                    }}><SparklesIcon /> PERSIST SESSION</button>
-                    <button onClick={() => {
-                        const session = designSessions[currentSessionIndex];
-                        if (!session) return;
-                        const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' });
-                        const a = document.createElement('a');
-                        a.href = URL.createObjectURL(blob);
-                        a.download = `usui-system-${session.styleTheme.toLowerCase().replace(/ /g, '-')}.json`;
-                        a.click();
-                    }}><DownloadIcon /> EXPORT SYSTEM (.JSON)</button>
+                    <button onClick={() => globalImportRef.current?.click()}><ArrowUpIcon /> IMPORT STYLE GUIDE</button>
                     <button onClick={handleExportStyleGuide} className="export-btn"><DownloadIcon /> EXPORT STYLE GUIDE</button>
                  </div>
             </div>
             <div className="floating-input-container">
                 <div className={`input-wrapper ${isLoading ? 'loading' : ''}`}>
                     {!inputValue && !isLoading && !selectedImage && <div className="animated-placeholder"><span className="placeholder-text">INITIATE NEW SYSTEM: {placeholders[placeholderIndex]}</span><span className="tab-hint">TAB</span></div>}
-                    {selectedImage && <div className="img-chip"><img src={selectedImage} /><button onClick={() => setSelectedImage(null)}><XIcon /></button></div>}
+                    {selectedImage && <div className="img-chip"><img src={selectedImage} alt="Seed" /><button onClick={() => setSelectedImage(null)}><XIcon /></button></div>}
                     {!isLoading ? (
-                        <input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleApplyStyle();
-                            if (e.key === 'Tab' && !inputValue) { e.preventDefault(); setInputValue(placeholders[placeholderIndex]); }
-                        }} />
+                        <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
+                          <input 
+                            ref={inputRef} 
+                            value={inputValue} 
+                            onChange={(e) => setInputValue(e.target.value)} 
+                            onPaste={handlePaste}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleApplyStyle();
+                                if (e.key === 'Tab' && !inputValue) { e.preventDefault(); setInputValue(placeholders[placeholderIndex]); }
+                            }} 
+                            placeholder=""
+                          />
+                          <button 
+                            className="action-btn" 
+                            style={{ opacity: 0.5, marginLeft: '10px' }} 
+                            onClick={() => imageInputRef.current?.click()}
+                            title="Upload Image Seed"
+                          >
+                            <ImageIcon />
+                          </button>
+                          <input 
+                            type="file" 
+                            ref={imageInputRef} 
+                            style={{ display: 'none' }} 
+                            accept="image/*" 
+                            onChange={handleImageFileChange} 
+                          />
+                        </div>
                     ) : <div className="loading-state">SYNTHESIZING DESIGN SYSTEM... <ThinkingIcon /></div>}
-                    <button className="go-btn" onClick={() => handleApplyStyle()} disabled={isLoading || !inputValue.trim() && !selectedImage}><ArrowUpIcon /></button>
+                    <button className="go-btn" onClick={() => handleApplyStyle()} disabled={isLoading || (!inputValue.trim() && !selectedImage)}><ArrowUpIcon /></button>
                 </div>
             </div>
         </div>
