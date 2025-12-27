@@ -303,6 +303,38 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: 'Inter', sans-ser
 .input-wrapper input { flex: 1; background: transparent; border: none; color: #fff; outline: none; font-size: 0.9rem; font-family: 'Inter', sans-serif; }
 .input-wrapper input::placeholder { color: #555; }
 
+/* Fixed Image Chip Styles */
+.img-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #111;
+    border: 1px solid #333;
+    padding: 4px 8px 4px 4px;
+    border-radius: 4px;
+    margin-right: 5px;
+}
+.img-chip img {
+    height: 32px;
+    width: auto;
+    max-width: 60px;
+    border-radius: 2px;
+    display: block;
+    object-fit: cover;
+}
+.img-chip button {
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+.img-chip button:hover {
+    color: #fff;
+}
+
 .go-btn {
     background: #fff;
     color: #000;
