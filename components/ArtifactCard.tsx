@@ -1,13 +1,16 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
 
 import React, { useEffect, useRef } from 'react';
-import { Artifact } from '../types';
+// Fix: Import ComponentVariation instead of non-existent Artifact
+import { ComponentVariation } from '../types';
 
 interface ArtifactCardProps {
-    artifact: Artifact;
+    // Fix: Use ComponentVariation instead of Artifact
+    artifact: ComponentVariation;
     isFocused: boolean;
     onClick: () => void;
 }

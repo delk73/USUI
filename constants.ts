@@ -29,36 +29,42 @@ export const CORE_COMPONENT_LIBRARY = [
     id: "btn-primary",
     name: "Primary Action",
     category: "Buttons",
-    description: "The main call-to-action button. Requires robust hover, active, and focus states. Consider weight and prominence."
+    description: "The main call-to-action button.",
+    affordances: ["Tactile hover elevation", "Active state depression", "Focus ring", "Loading spinner state"]
   },
   {
     id: "card-content",
     name: "Content Container",
     category: "Layout",
-    description: "A card for housing media and text. Focus on hierarchy, padding logic, and how shadows or borders define depth."
+    description: "A card for housing media and text.",
+    affordances: ["Depth via subtle shadows", "Content masking", "Hover scale effect", "Responsive padding"]
   },
   {
     id: "input-standard",
     name: "Standard Input",
     category: "Forms",
-    description: "A text input field. Needs a label, placeholder styling, and a strong focus ring or border change."
+    description: "A text input field.",
+    affordances: ["Floating label", "Focus border transition", "Clear-text button", "Error state shake"]
   },
   {
     id: "nav-global",
     name: "Global Header",
     category: "Navigation",
-    description: "The top-level navigation bar. Needs logo space, link spacing, and a sticky or fixed behavior suggestion."
+    description: "The top-level navigation bar.",
+    affordances: ["Sticky scroll behavior", "Active link highlighting", "Glassmorphism backdrop", "Mobile collapse"]
   },
   {
     id: "modal-standard",
     name: "System Modal",
     category: "Overlays",
-    description: "A centered overlay for critical tasks. Focus on the backdrop (scrim) and the header/action relationship."
+    description: "A centered overlay for critical tasks.",
+    affordances: ["Backdrop blur", "Entrance scaling animation", "Close-on-ESC", "Locked scroll"]
   },
   {
     id: "badge-status",
     name: "Status Badge",
     category: "Information",
-    description: "Small indicator for status or categories. Needs distinct color logic for success/warning/error/neutral."
+    description: "Small indicator for status or categories.",
+    affordances: ["Color-coded semantic logic", "Pill shape", "Subtle pulse animation", "Tiny typography"]
   }
 ];

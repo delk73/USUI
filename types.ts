@@ -7,8 +7,9 @@
 export interface DesignComponent {
   id: string;
   name: string;
-  category: string;
+  category?: string;
   description: string;
+  affordances: string[]; // New: Specific interaction/visual requirements
   baseHtml?: string;
 }
 
@@ -27,28 +28,6 @@ export interface DesignSession {
   styleTheme: string;
   designLanguage: string;
   timestamp: number;
+  architecture: DesignComponent[];
   variations: ComponentVariation[];
-}
-
-export interface UserStyle {
-  id: string;
-  name: string;
-  prompt: string;
-  designLanguage: string;
-  variations: ComponentVariation[];
-  timestamp: number;
-}
-
-export interface Artifact {
-  id: string;
-  styleName: string;
-  html: string;
-  status: 'pending' | 'streaming' | 'complete' | 'error';
-}
-
-export interface Session {
-    id: string;
-    prompt: string;
-    timestamp: number;
-    artifacts: Artifact[];
 }
