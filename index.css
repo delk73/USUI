@@ -52,7 +52,15 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: 'Inter', sans-ser
 .synth-system-btn { background: #111; border: 1px solid #333; color: #fff; font-weight: 900; padding: 6px 12px; text-transform: uppercase; font-size: 0.6rem; cursor: pointer; }
 
 .artifact-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); }
-.artifact-card { background: #000; border: 1px solid var(--border); min-height: 350px; transition: 0.2s cubic-bezier(0.16, 1, 0.3, 1); position: relative; overflow: hidden; }
+.artifact-card { 
+    background: #000; 
+    border: 1px solid var(--border); 
+    min-height: 350px; 
+    /* Restricted transitions to prevent layout resize jank */
+    transition: border-color 0.2s, box-shadow 0.2s, opacity 0.2s, transform 0.2s; 
+    position: relative; 
+    overflow: hidden; 
+}
 .artifact-card:hover { border-color: #fff; box-shadow: 0 0 20px rgba(255,255,255,0.05); }
 
 /* Attention Hierarchy: Low-cognition Dimming */
@@ -86,6 +94,40 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: 'Inter', sans-ser
 .pending-overlay { position: absolute; inset: 0; background: #050505; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; z-index: 60; }
 .pending-content { width: 85%; display: flex; flex-direction: column; align-items: center; }
 .comp-desc { font-size: 0.7rem; color: #666; margin-bottom: 12px; line-height: 1.4; }
+
+/* Generating / Materializing Overlay - Covers iframe during streaming */
+.generating-overlay {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.materialize-visual-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+}
+
+.code-stream-preview-overlay {
+    margin-top: 20px;
+    width: 90%;
+    height: 150px;
+    overflow: hidden;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.5rem;
+    color: #333;
+    opacity: 0.5;
+    white-space: pre-wrap;
+    text-align: left;
+    mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+}
 
 /* Affordance Editing Styles */
 .affordance-row-editable {
@@ -191,6 +233,65 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: 'Inter', sans-ser
 .focus-back-btn { background: transparent; border: 1px solid #222; color: #fff; padding: 8px 16px; font-weight: 900; text-transform: uppercase; cursor: pointer; display: flex; align-items: center; gap: 12px; font-size: 0.7rem; }
 .focus-back-btn:hover { background: #fff; color: #000; border-color: #fff; }
 
+.focus-canvas {
+    flex: 1;
+    width: 100%;
+    position: relative;
+    background: #050505;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.focus-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
+.focus-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.focus-comp-id {
+    font-size: 0.5rem;
+    color: #444;
+    letter-spacing: 0.2em;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.focus-comp-name {
+    font-size: 0.9rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    color: #fff;
+    text-transform: uppercase;
+}
+
+.focus-code-btn {
+    background: transparent;
+    border: 1px solid #333;
+    color: #fff;
+    padding: 8px 16px;
+    font-weight: 700;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.6rem;
+}
+.focus-code-btn:hover {
+    background: #fff;
+    color: #000;
+    border-color: #fff;
+}
+
 .bottom-controls { position: fixed; bottom: 80px; left: 0; right: 0; display: flex; justify-content: center; z-index: 150; opacity: 0; pointer-events: none; transition: 0.4s; }
 .bottom-controls.visible { opacity: 1; pointer-events: auto; }
 .control-btns { display: flex; border: 1px solid #fff; background: #000; }
@@ -199,7 +300,23 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: 'Inter', sans-ser
 
 .floating-input-container { position: fixed; bottom: 20px; left: 0; right: 0; display: flex; justify-content: center; z-index: 160; }
 .input-wrapper { width: 100%; max-width: 600px; background: #000; border: 1px solid #222; padding: 6px 6px 6px 20px; display: flex; align-items: center; gap: 15px; }
-.input-wrapper input { flex: 1; background: transparent; border: none; color: #fff; outline: none; font-size: 0.9rem; }
+.input-wrapper input { flex: 1; background: transparent; border: none; color: #fff; outline: none; font-size: 0.9rem; font-family: 'Inter', sans-serif; }
+.input-wrapper input::placeholder { color: #555; }
+
+.go-btn {
+    background: #fff;
+    color: #000;
+    border: none;
+    padding: 8px 16px;
+    font-weight: 900;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+.go-btn:hover { opacity: 0.9; }
+.go-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .pulse { animation: pulse 2s infinite; }
 @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }

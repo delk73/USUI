@@ -25,11 +25,12 @@ import {
     CodeIcon,
     ArrowLeftIcon,
     TrashIcon,
-    GridIcon
+    GridIcon,
+    ArrowRightIcon
 } from './components/Icons';
 
-// Retro Defragmenter Animation
-const RetroDefragLoader = ({ label }: { label?: string }) => {
+// Block Loader Animation
+const BlockLoader = ({ label }: { label?: string }) => {
   const [blocks, setBlocks] = useState<number[]>(new Array(1024).fill(0));
 
   useEffect(() => {
@@ -52,7 +53,7 @@ const RetroDefragLoader = ({ label }: { label?: string }) => {
           <div key={i} className={`defrag-block-sm type-${type}`} />
         ))}
       </div>
-      <div className="defrag-label-sm">{label || 'REALLOCATING_VISUAL_CLUSTERS...'}</div>
+      <div className="defrag-label-sm">{label || 'ALLOCATING_RESOURCES...'}</div>
     </div>
   );
 };
@@ -70,19 +71,20 @@ const FocusStage = ({
 }) => {
     const normalizedHtml = useMemo(() => {
         if (!variation.html) return '';
-        const baseStyle = `<style>:root{color-scheme:dark;--font-sans:'Inter',system-ui,sans-serif;}body{margin:0;padding:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#050505;font-family:var(--font-sans);color:#fff;}*{box-sizing:border-box;max-width:100%;overflow-wrap:break-word;}</style>`;
+        // Updated base style for strict containment and no jitter
+        const baseStyle = `<style>:root{color-scheme:dark;--font-sans:'Inter',system-ui,sans-serif;}html,body{height:100%;margin:0;padding:0;overflow:hidden;}body{display:flex;align-items:center;justify-content:center;background:#050505;font-family:var(--font-sans);color:#fff;}*{box-sizing:border-box;max-width:100%;overflow-wrap:break-word;}</style>`;
         return `${baseStyle}${variation.html}`;
     }, [variation.html]);
 
     return (
         <div className="focus-stage-overlay">
             <div className="focus-stage-header">
-                <button className="focus-back-btn" onClick={onClose}><ArrowLeftIcon /> RETURN TO SYSTEM GRID</button>
+                <button className="focus-back-btn" onClick={onClose}><ArrowLeftIcon /> RETURN TO GRID</button>
                 <div className="focus-meta">
-                    <span className="focus-comp-id">MODULE // ${component.id.toUpperCase()}</span>
+                    <span className="focus-comp-id">MODULE // {component.id.toUpperCase()}</span>
                     <span className="focus-comp-name">{component.name}</span>
                 </div>
-                <button className="focus-code-btn" onClick={onViewSource}><CodeIcon /> VIEW DNA SOURCE</button>
+                <button className="focus-code-btn" onClick={onViewSource}><CodeIcon /> VIEW SOURCE CODE</button>
             </div>
             <div className="focus-canvas">
                 <iframe srcDoc={normalizedHtml} title={`focus-${variation.id}`} sandbox="allow-scripts allow-forms allow-modals allow-popups allow-presentation allow-same-origin" className="focus-iframe" />
@@ -125,13 +127,13 @@ const RemixModal = ({
     return (
         <div className="drawer-overlay" onClick={onClose}>
             <div className="remix-modal" onClick={e => e.stopPropagation()}>
-                <div className="remix-modal-header"><div className="context-label">SYNTHESIS CONFIGURATION // {componentName}</div></div>
+                <div className="remix-modal-header"><div className="context-label">MODULE CONFIGURATION // {componentName}</div></div>
                 <div className="remix-modal-section">
                     <div className="context-label" style={{ marginBottom: '8px' }}>REFINEMENT NOTES</div>
                     <textarea ref={inputRef} className="remix-textarea" placeholder="Describe behavior adjustments..." value={notes} onChange={e => setNotes(e.target.value)} />
                 </div>
                 <div className="remix-modal-section" style={{ marginTop: '24px' }}>
-                    <div className="context-label" style={{ marginBottom: '12px' }}>INTERACTION CONTRACT (AFFORDANCES)</div>
+                    <div className="context-label" style={{ marginBottom: '12px' }}>INTERACTION RULES (AFFORDANCES)</div>
                     <div className="affordance-row-editable">
                         {affordances.map((aff, idx) => (
                             <span key={idx} className="affordance-chip-edit active" onClick={() => toggleAffordance(aff)}>{aff} <XIcon /></span>
@@ -144,7 +146,7 @@ const RemixModal = ({
                 </div>
                 <div className="remix-modal-footer">
                     <button className="remix-cancel" onClick={onClose}>CANCEL</button>
-                    <button className="remix-submit" onClick={() => onConfirm(notes, affordances)}>SYNTHESIZE REVISION</button>
+                    <button className="remix-submit" onClick={() => onConfirm(notes, affordances)}>GENERATE REVISION</button>
                 </div>
             </div>
         </div>
@@ -174,7 +176,8 @@ const ComponentCard = React.memo(({
     
     const normalizedHtml = useMemo(() => {
         if (!variation.html) return '';
-        const baseStyle = `<style>:root{color-scheme:dark;}body{margin:0;padding:2rem;display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 4rem);background:transparent;font-family:'Inter',system-ui,sans-serif;overflow:hidden;}*{box-sizing:border-box;max-width:100%;overflow-wrap:break-word;}</style>`;
+        // Updated base style for strict containment and no jitter
+        const baseStyle = `<style>:root{color-scheme:dark;}html,body{height:100%;margin:0;padding:0;overflow:hidden;}body{display:flex;align-items:center;justify-content:center;background:transparent;font-family:'Inter',system-ui,sans-serif;}*{box-sizing:border-box;max-width:100%;overflow-wrap:break-word;}</style>`;
         return `${baseStyle}${variation.html}`;
     }, [variation.html]);
 
@@ -223,7 +226,7 @@ const ComponentCard = React.memo(({
                 {isStreaming && (
                     <div className="generating-overlay">
                         <div className="materialize-visual-stack">
-                           <RetroDefragLoader label="MATERIALIZING_DNA..." />
+                           <BlockLoader label="GENERATING_CODE..." />
                            {variation.html && <pre className="code-stream-preview-overlay">{variation.html}</pre>}
                         </div>
                     </div>
@@ -265,7 +268,7 @@ function App() {
 
   useEffect(() => { inputRef.current?.focus(); }, []);
   useEffect(() => {
-    const interval = setInterval(() => setPlaceholderIndex(p => (p + 1) % INITIAL_PLACEHOLDERS.length), 4000);
+    const interval = setInterval(() => setPlaceholderIndex(p => (p + 1) % INITIAL_PLACEHOLDERS.length), 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -305,7 +308,12 @@ STRATEGY: ${session.designLanguage}
 AFFORDANCES: ${comp.affordances.join(', ')}
 ${notes ? `REFINEMENT: "${notes}"` : ''}
 ${currentHtml ? `UPDATE EXISTING: \`\`\`html\n${currentHtml}\n\`\`\`` : ''}
-RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No dead links.`;
+RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No dead links.
+STRICT STABILITY:
+- DO NOT use "transition: all". Explicitly specify properties (e.g., opacity, color, transform).
+- NO layout resizing or floaty animations on load. Elements must have stable dimensions.
+- Use 'tabular-nums' or monospace fonts for dynamic data/numbers to prevent jitter.
+- Avoid animating width, height, margin, or padding.`;
 
           const responseStream = await ai.models.generateContentStream({
               model: 'gemini-flash-lite-latest',
@@ -337,14 +345,19 @@ RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No d
 
   const handleApplyStyle = useCallback(async (manualPrompt?: string) => {
     const spice = manualPrompt || inputValue;
-    if (!spice.trim() && !selectedImage || isLoading) return;
+    if (!spice.trim() && !selectedImage) {
+        if (isLoading) return;
+        // Logic for empty submit: do nothing if no placeholder logic wanted, 
+        // BUT the prompt requested "rotating text can be submitted".
+        // The calling code handles passing the placeholder if inputValue is empty.
+    }
 
     setIsLoading(true);
     const sessionId = generateId();
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     try {
-        let theme = spice || "Visual Synthesis";
+        let theme = spice || "Visual System";
         let strategy = "High-fidelity industrial modernism.";
         
         if (selectedImage) {
@@ -507,20 +520,20 @@ RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No d
             <nav style="margin-top: 40px"><div class="label">NAVIGATION</div><ul class="nav-list"><li><a href="#cover">00 // OVERVIEW</a></li>${componentItems.map((c, i) => `<li><a href="#${c.id}">${String(i+1).padStart(2, '0')} // ${c.name}</a></li>`).join('')}</ul></nav>
         </aside>
         <main class="main">
-            <section id="cover" class="section-cover"><div class="label">IDENTITY // DNA_v1.5</div><h1 class="cover-title">${currentSession.styleTheme}</h1><div class="strategy">${currentSession.designLanguage}</div></section>
+            <section id="cover" class="section-cover"><div class="label">IDENTITY // SPEC_v1.5</div><h1 class="cover-title">${currentSession.styleTheme}</h1><div class="strategy">${currentSession.designLanguage}</div></section>
             ${componentItems.map(c => `
             <section id="${c.id}" class="component-section">
                 <div class="comp-header"><div class="label">MODULE_ID: ${c.id.toUpperCase()}</div><h2>${c.name}</h2><p style="color:#666; margin-bottom:15px">${c.description}</p>
                 <div style="margin-top:10px">${c.affordances.map(a => `<span class="aff-chip">${a}</span>`).join('')}</div></div>
                 <div class="comp-preview"><iframe class="preview-iframe" srcdoc="${c.srcDoc.replace(/"/g, '&quot;')}" sandbox="allow-scripts allow-same-origin"></iframe></div>
                 <details class="code-details">
-                    <summary class="code-summary">VIEW SOURCE DNA [+]</summary>
+                    <summary class="code-summary">VIEW SOURCE CODE [+]</summary>
                     <pre><code>${c.html.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>
                 </details>
             </section>`).join('')}
         </main>
     </div>
-    <script id="usui-session-data" type="application/json">${JSON.stringify(currentSession)}</script>
+    <script id="usui-session-data" type="application/json">${JSON.stringify(currentSession).replace(/</g, '\\u003c')}</script>
 </body>
 </html>`;
 
@@ -544,7 +557,7 @@ RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No d
             setDesignSessions(prev => [...prev, data]);
             setCurrentSessionIndex(designSessions.length);
         } catch (err) {
-            alert("FAILURE // Corrupt DNA fragment detected.");
+            alert("ERROR // Invalid session file.");
         }
     };
     r.readAsText(f);
@@ -587,7 +600,7 @@ RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No d
                         <div className="empty-content">
                             <h1 className="hero-text"><span className="hero-main">USUI</span><span className="hero-sub">STUDIO</span></h1>
                             <div className="landing-actions">
-                               <button className="main-btn" onClick={() => handleApplyStyle(INITIAL_PLACEHOLDERS[placeholderIndex])}>RANDOM SPICE</button>
+                               <button className="main-btn" onClick={() => handleApplyStyle(INITIAL_PLACEHOLDERS[placeholderIndex])}>RANDOM THEME</button>
                                <button className="main-btn ghost" onClick={() => globalImportRef.current?.click()}>IMPORT SESSION</button>
                             </div>
                         </div>
@@ -597,15 +610,15 @@ RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No d
                         <div className="session-context-header">
                             <div className="manifesto-header-tight">
                                 <div className="manifesto-col">
-                                    <div className="context-label">SYSTEM_DNA</div>
+                                    <div className="context-label">SYSTEM_CONFIG</div>
                                     <div className="token-actions-row">
                                         <input className="context-theme-input" value={currentSession.styleTheme} onChange={(e) => setDesignSessions(prev => prev.map(s => s.id === currentSession.id ? { ...s, styleTheme: e.target.value } : s))} />
                                         <div className="synth-system-btn-group">
-                                            {isSystemSynthesizing && <span className="active-loader-tag pulse">SEQUENTIAL_SYNTHESIS_ACTIVE...</span>}
+                                            {isSystemSynthesizing && <span className="active-loader-tag pulse">BATCH_GENERATION_ACTIVE...</span>}
                                             <button className="synth-system-btn" onClick={handleAddModule}>+ ADD MODULE</button>
                                         </div>
                                     </div>
-                                    <div className="context-label">STRATEGY</div>
+                                    <div className="context-label">DESIGN_STRATEGY</div>
                                     <textarea className="context-strategy-textarea" value={currentSession.designLanguage} onChange={(e) => setDesignSessions(prev => prev.map(s => s.id === currentSession.id ? { ...s, designLanguage: e.target.value } : s))} />
                                 </div>
                             </div>
@@ -641,22 +654,26 @@ RULES: ONLY output code inside \`\`\`html blocks. Responsive, polished CSS. No d
 
             <div className="floating-input-container">
                 <div className={`input-wrapper ${isLoading ? 'loading' : ''}`}>
-                    {!inputValue && !isLoading && !selectedImage && <div className="animated-placeholder">INITIATE: {INITIAL_PLACEHOLDERS[placeholderIndex]}</div>}
                     {selectedImage && <div className="img-chip"><img src={selectedImage} alt="seed" /><button onClick={() => setSelectedImage(null)}><XIcon /></button></div>}
                     {!isLoading ? (
                         <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
-                          <input ref={inputRef} value={inputValue} onChange={e => setInputValue(e.target.value)} onPaste={e => {
+                          <input 
+                            ref={inputRef} 
+                            value={inputValue} 
+                            onChange={e => setInputValue(e.target.value)} 
+                            placeholder={INITIAL_PLACEHOLDERS[placeholderIndex]}
+                            onPaste={e => {
                               const item = e.clipboardData?.items[0];
                               if (item?.type.includes('image')) {
                                   const r = new FileReader(); r.onload = ev => setSelectedImage(ev.target?.result as string); r.readAsDataURL(item.getAsFile()!);
                               }
                           }} onKeyDown={e => {
-                              if (e.key === 'Enter') handleApplyStyle();
+                              if (e.key === 'Enter') handleApplyStyle(inputValue || INITIAL_PLACEHOLDERS[placeholderIndex]);
                           }} />
                           <button className="action-btn" onClick={() => imageInputRef.current?.click()}><ImageIcon /></button>
                         </div>
-                    ) : <div className="loading-state">SYNTHESIZING... <ThinkingIcon /></div>}
-                    <button className="go-btn" onClick={() => handleApplyStyle()} disabled={isLoading}><ArrowUpIcon /></button>
+                    ) : <div className="loading-state">PROCESSING... <ThinkingIcon /></div>}
+                    <button className="go-btn" onClick={() => handleApplyStyle(inputValue || INITIAL_PLACEHOLDERS[placeholderIndex])} disabled={isLoading}>GENERATE</button>
                 </div>
             </div>
         </div>
